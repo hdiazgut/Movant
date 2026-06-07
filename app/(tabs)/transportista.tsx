@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
-// ⚠️ NOTA: Si te da error de importación, ajusta esta ruta hacia tu archivo de configuración de Supabase
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { supabase } from '../supabase';
 
 const serviciosDisponibles = [
@@ -10,12 +18,14 @@ const serviciosDisponibles = [
   { id: 'comercial', icon: '🏢', label: 'Comercial' },
 ];
 
+const TABLA = 'Transportistas';
+
 export default function TransportistaScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Estados dinámicos que se llenarán con Supabase
+  // Datos del perfil — nombres de columna con mayúscula igual que en Supabase
   const [nombre, setNombre] = useState('');
   const [vehiculo, setVehiculo] = useState('');
   const [patente, setPatente] = useState('');
@@ -24,7 +34,6 @@ export default function TransportistaScreen() {
   const [servicios, setServicios] = useState<string[]>([]);
   const [reputacion, setReputacion] = useState(5.0);
 
-  // Cargar los datos automáticamente al abrir la pantalla
   useEffect(() => {
     cargarPerfil();
   }, []);
@@ -33,9 +42,8 @@ export default function TransportistaScreen() {
     try {
       setLoading(true);
 
-      // 1. Obtener la sesión del usuario actualmente logueado
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
+
       if (authError || !user) {
         Alert.alert('Sesión expirada', 'Por favor, vuelve a iniciar sesión.');
         return;
@@ -43,33 +51,41 @@ export default function TransportistaScreen() {
 
       setUserId(user.id);
 
-      // 2. Consultar los datos en la tabla 'transportistas' vinculados a ese ID
+      // Buscar el perfil por user_id (columna que vincula con auth.users)
       const { data, error } = await supabase
-        .from('public.Transportistas')
+        .from(TABLA)
         .select('*')
-        .eq('id', user.id)
+        .eq('user_id', user.id)   // ✅ busca por user_id, no por id
         .single();
 
       if (error) {
         if (error.code === 'PGRST116') {
-          Alert.alert('Perfil incompleto', 'No encontramos datos de transportista para esta cuenta.');
+          Alert.alert('Perfil incompleto', 'No encontramos tu perfil. ¿Ya completaste el registro?');
         } else {
           throw error;
         }
+        return;
       }
 
-      // 3. Asignar los datos reales de la BD a nuestros estados de React
       if (data) {
-        setNombre(data.nombre || 'Sin nombre');
-        setVehiculo(data.vehiculo || 'No especificado');
-        setPatente(data.patente || 'S/P');
-        setPrecio(data.precio || 0);
-        setDisponible(data.disponibilidad ?? true);
-        setServicios(data.servicios || []);
-        setReputacion(data.reputacion || 5.0);
+        setNombre(data.Nombre || 'Sin nombre');
+        setVehiculo(data.Vehiculo || 'No especificado');
+        setPatente(data.Patente || 'S/P');
+        setPrecio(data.Precio || 0);
+        setDisponible(data.Disponible ?? true);
+        // Servicios viene como string "mudanza, carga" → convertir a array
+        const srv = data.Servicios;
+        if (Array.isArray(srv)) {
+          setServicios(srv);
+        } else if (typeof srv === 'string' && srv.length > 0) {
+          setServicios(srv.split(',').map((s: string) => s.trim()));
+        } else {
+          setServicios([]);
+        }
+        setReputacion(data.Rating || 5.0);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error al cargar perfil', error.message);
     } finally {
       setLoading(false);
     }
@@ -79,20 +95,19 @@ export default function TransportistaScreen() {
     if (!userId) return;
 
     try {
-      setSaving(false);
-      
-      // 4. Actualizar la disponibilidad y servicios en Supabase
+      setSaving(true);
+
       const { error } = await supabase
-        .from('transportistas')
+        .from(TABLA)
         .update({
-          disponibilidad: disponible,
-          servicios: servicios,
+          Disponible: disponible,
+          Servicios: servicios.join(', '),  // guardar como string igual que al crear
         })
-        .eq('id', userId);
+        .eq('user_id', userId);  // ✅ busca por user_id
 
       if (error) throw error;
 
-      Alert.alert('Movant', '¡Cambios guardados con éxito!');
+      Alert.alert('FleteYa', '¡Cambios guardados con éxito!');
     } catch (error: any) {
       Alert.alert('Error al guardar', error.message);
     } finally {
@@ -106,19 +121,19 @@ export default function TransportistaScreen() {
     );
   };
 
-  // Pantalla de carga mientras responde Supabase
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#0F6E56" />
-        <Text style={styles.loadingText}>Cargando perfil en Movant...</Text>
+        <Text style={styles.loadingText}>Cargando tu perfil...</Text>
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.container}>
-      {/* Header Dinámico */}
+
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View>
@@ -142,26 +157,28 @@ export default function TransportistaScreen() {
           </View>
           <View>
             <Text style={styles.driverName}>{nombre}</Text>
-            <Text style={styles.driverStars}>★ {reputacion.toFixed(1)} · Conductor Movant</Text>
+            <Text style={styles.driverStars}>★ {reputacion.toFixed(1)} · Conductor FleteYa</Text>
           </View>
         </View>
       </View>
 
-      {/* Alerta de Disponibilidad */}
+      {/* Banner desconectado */}
       {!disponible && (
         <View style={styles.noDisponibleBanner}>
-          <Text style={styles.noDisponibleText}>⚠️ Estás en modo desconectado. Los clientes no pueden agendarte fletes ahora.</Text>
+          <Text style={styles.noDisponibleText}>
+            ⚠️ Estás en modo desconectado. Los clientes no pueden agendarte ahora.
+          </Text>
         </View>
       )}
 
-      {/* Vehículo e Información de la BD */}
+      {/* Vehículo */}
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>MI VEHÍCULO</Text>
         <View style={styles.card}>
           <Text style={styles.cardIcon}>🚛</Text>
           <View style={styles.cardInfo}>
             <Text style={styles.cardTitle}>{vehiculo} · {patente}</Text>
-            <Text style={styles.cardSub}>Tarifa base configurada: ${precio.toLocaleString('es-CL')}/hora</Text>
+            <Text style={styles.cardSub}>Tarifa base: ${precio.toLocaleString('es-CL')}/hora</Text>
           </View>
           <View style={styles.activeBadge}>
             <Text style={styles.activeBadgeText}>Activo</Text>
@@ -169,7 +186,7 @@ export default function TransportistaScreen() {
         </View>
       </View>
 
-      {/* Servicios dinámicos */}
+      {/* Servicios */}
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>SERVICIOS QUE OFREZCO ({servicios.length})</Text>
         <View style={styles.serviceGrid}>
@@ -191,9 +208,13 @@ export default function TransportistaScreen() {
         </View>
       </View>
 
-      {/* Botón de Guardar en Supabase */}
+      {/* Botón guardar */}
       <View style={styles.section}>
-        <TouchableOpacity style={styles.btnGuardar} onPress={guardarCambios} disabled={saving}>
+        <TouchableOpacity
+          style={[styles.btnGuardar, saving && styles.btnGuardarDisabled]}
+          onPress={guardarCambios}
+          disabled={saving}
+        >
           {saving ? (
             <ActivityIndicator color="#fff" />
           ) : (
@@ -201,6 +222,7 @@ export default function TransportistaScreen() {
           )}
         </TouchableOpacity>
       </View>
+
     </ScrollView>
   );
 }
@@ -238,5 +260,6 @@ const styles = StyleSheet.create({
   serviceLabel: { fontSize: 13, color: '#555', fontWeight: '500' },
   serviceLabelActive: { fontSize: 13, color: '#0F6E56', fontWeight: '500' },
   btnGuardar: { backgroundColor: '#0F6E56', padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  btnGuardarDisabled: { backgroundColor: '#7ABFB0' },
   btnGuardarText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

@@ -1,6 +1,15 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { supabase } from '../supabase';
 
 const vehiculos = [
@@ -22,6 +31,7 @@ export default function RegistroScreen() {
   const [vehiculo, setVehiculo] = useState('');
   const [serviciosSeleccionados, setServiciosSeleccionados] = useState<string[]>([]);
   const [precio, setPrecio] = useState('');
+  const [guardando, setGuardando] = useState(false);
 
   const toggleServicio = (id: string) => {
     setServiciosSeleccionados(prev =>
@@ -30,16 +40,60 @@ export default function RegistroScreen() {
   };
 
   const puedeRegistrarse =
-    nombre !== '' &&
-    patente !== '' &&
+    nombre.trim() !== '' &&
+    patente.trim() !== '' &&
     vehiculo !== '' &&
     serviciosSeleccionados.length > 0 &&
     precio !== '';
 
+  const handleRegistro = async () => {
+    if (!puedeRegistrarse) return;
+
+    try {
+      setGuardando(true);
+
+      // 1. Obtener usuario autenticado
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        Alert.alert('Error', 'No hay sesión activa. Por favor inicia sesión primero.');
+        return;
+      }
+
+      // 2. Insertar con los nombres EXACTOS de columnas de tu tabla en Supabase
+      const { error } = await supabase
+        .from('Transportistas')
+        .insert([{
+          user_id: user.id,                          // FK al usuario autenticado
+          Nombre: nombre.trim(),                     // columna con mayúscula
+          Patente: patente.trim().toUpperCase(),
+          Vehiculo: vehiculo,
+          Servicios: serviciosSeleccionados.join(', '), // texto separado por coma
+          Precio: parseInt(precio),
+          Disponible: true,
+          Rating: 5.0,
+          Viajes: 0,
+        }]);
+
+      if (error) {
+        Alert.alert('Error al registrar', error.message);
+        return;
+      }
+
+      Alert.alert('¡Listo!', 'Tu perfil fue creado con éxito.', [
+        { text: 'Continuar', onPress: () => router.replace('/(tabs)/transportista') }
+      ]);
+
+    } catch (error: any) {
+      Alert.alert('Error inesperado', error.message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container}>
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Registro de transportista</Text>
         <Text style={styles.headerSub}>Completa tu perfil para comenzar</Text>
@@ -47,9 +101,7 @@ export default function RegistroScreen() {
 
       <View style={styles.content}>
 
-        {/* Datos personales */}
         <Text style={styles.sectionLabel}>DATOS PERSONALES</Text>
-
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Nombre completo</Text>
           <TextInput
@@ -61,7 +113,6 @@ export default function RegistroScreen() {
           />
         </View>
 
-        {/* Vehículo */}
         <Text style={styles.sectionLabel}>TIPO DE VEHÍCULO</Text>
         {vehiculos.map((v) => (
           <TouchableOpacity
@@ -82,7 +133,6 @@ export default function RegistroScreen() {
           </TouchableOpacity>
         ))}
 
-        {/* Patente */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Patente del vehículo</Text>
           <TextInput
@@ -92,10 +142,10 @@ export default function RegistroScreen() {
             value={patente}
             onChangeText={setPatente}
             autoCapitalize="characters"
+            maxLength={8}
           />
         </View>
 
-        {/* Servicios */}
         <Text style={styles.sectionLabel}>SERVICIOS QUE OFRECES</Text>
         <View style={styles.serviceGrid}>
           {servicios.map((s) => {
@@ -115,7 +165,6 @@ export default function RegistroScreen() {
           })}
         </View>
 
-        {/* Precio */}
         <Text style={styles.sectionLabel}>PRECIO POR HORA</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>¿Cuánto cobras por hora? (en pesos)</Text>
@@ -132,46 +181,25 @@ export default function RegistroScreen() {
           </View>
         </View>
 
-        {/* Aviso */}
         {!puedeRegistrarse && (
           <View style={styles.aviso}>
             <Text style={styles.avisoText}>📋 Completa todos los campos para continuar</Text>
           </View>
         )}
 
-        {/* Botón registrarse */}
         <TouchableOpacity
-          style={[styles.btnRegistrar, !puedeRegistrarse && styles.btnRegistrarDisabled]}
-          disabled={!puedeRegistrarse}
-          onPress={async () => {
-  const { error } = await supabase
-    .from('Transportistas')
-    .insert([{
-      Nombre: nombre,
-      Patente: patente,
-      Vehiculo: vehiculo,
-      Servicios: serviciosSeleccionados.join(', '),
-      Precio: parseInt(precio),
-      Disponible: true,
-      Rating: 5.0,
-      Viajes: 0,
-    }]);
-
-  if (error) {
-    alert('Error al registrar: ' + error.message);
-  } else {
-    alert('¡Perfil creado con éxito!');
-    router.push('/(tabs)/transportista');
-  }
-}}
+          style={[styles.btnRegistrar, (!puedeRegistrarse || guardando) && styles.btnRegistrarDisabled]}
+          disabled={!puedeRegistrarse || guardando}
+          onPress={handleRegistro}
         >
-          <Text style={styles.btnRegistrarText}>Crear mi perfil →</Text>
+          {guardando ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.btnRegistrarText}>Crear mi perfil →</Text>
+          )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.btnVolver}
-          onPress={() => router.back()}
-        >
+        <TouchableOpacity style={styles.btnVolver} onPress={() => router.back()}>
           <Text style={styles.btnVolverText}>← Volver</Text>
         </TouchableOpacity>
 

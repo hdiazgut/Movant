@@ -3,6 +3,10 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../supabase';
 
+type TransportistaRow = {
+  id: string;
+};
+
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,23 +18,72 @@ export default function LoginScreen() {
       alert('Por favor completa todos los campos');
       return;
     }
+
     setLoading(true);
-    if (esRegistro) {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) {
-        alert('Error: ' + error.message);
-      } else {
-        alert('¡Cuenta creada! Revisa tu email para confirmar.');
+    try {
+      if (esRegistro) {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) {
+          alert('Error: ' + error.message);
+        } else {
+          alert('¡Cuenta creada! Revisa tu email para confirmar.');
+        }
+        return;
       }
-    } else {
+
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         alert('Error: ' + error.message);
-      } else {
-        router.replace('/(tabs)');
+        return;
       }
+
+      // Al iniciar sesión, verificamos si ya existe tu perfil en Transportistas.
+      // Si existe, vamos directo a la pantalla del transportista.
+      // Si no existe, te enviamos a /registro para completarlo.
+      const {
+        data: { user },
+        error: authErr,
+      } = await supabase.auth.getUser();
+
+      if (authErr || !user) {
+        alert('Sesión expirada. Vuelve a iniciar sesión.');
+        router.replace('/(tabs)/login');
+        return;
+      }
+
+      // Nota: ajusta el nombre del campo PK/ID según tu tabla.
+      // El error anterior indica que NO existe la columna `id` en `Transportitas/Transportistas`.
+      // Intentamos consultar por una columna típica: `id` (auth user id) o `user_id`.
+      const {
+        data: perfil,
+        error: perfilErr,
+      } = await supabase
+        .from('Transportistas')
+        .select('user_id, id')
+        .or(`user_id.eq.${user.id},id.eq.${user.id}`)
+        .maybeSingle<TransportistaRow>();
+
+      if (perfilErr) {
+        // Si no hay perfil, mandamos a registro.
+        // PGRST116 = No rows found (Supabase).
+        if (perfilErr.code === 'PGRST116') {
+          router.replace('/(tabs)/registro');
+          return;
+        }
+
+        // Si el schema de tu tabla no coincide (por ejemplo, columnas con otros nombres),
+        // para no bloquear el login: igual mandamos a registro.
+        // Esto te permitirá guardar/crear tu perfil desde /registro.
+        console.warn('Error al verificar perfil:', perfilErr);
+        router.replace('/(tabs)/registro');
+        return;
+      }
+
+      // Existe perfil -> vas al perfil.
+      router.replace('/(tabs)/transportista');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
